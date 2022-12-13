@@ -5,19 +5,48 @@ package restapi
 import (
 	"crypto/tls"
 	"net/http"
+	"sync"
+	"sync/atomic"
+
+	"github.com/go-openapi/swag"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
+	"todo-list/models"
 	"todo-list/restapi/operations"
 	"todo-list/restapi/operations/todos"
 )
 
 //go:generate swagger generate server --target ../../api --name TodoList --spec ../swagger.yml --principal interface{}
 
+var itemsLock = &sync.Mutex{}
+
+var items = make(map[int64]*models.Item)
+var lastID int64
+
+func newItemID() int64 {
+	return atomic.AddInt64(&lastID, 1)
+}
+
 func configureFlags(api *operations.TodoListAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
+}
+
+func addItem(item *models.Item) error {
+	if item == nil {
+		return errors.New(500, "item must be present")
+	}
+
+	itemsLock.Lock()
+	defer itemsLock.Unlock()
+
+	newID := newItemID()
+	item.ID = newID
+	items[newID] = item
+
+	return nil
 }
 
 func configureAPI(api *operations.TodoListAPI) http.Handler {
@@ -38,11 +67,13 @@ func configureAPI(api *operations.TodoListAPI) http.Handler {
 
 	api.JSONProducer = runtime.JSONProducer()
 
-	if api.TodosAddOneHandler == nil {
-		api.TodosAddOneHandler = todos.AddOneHandlerFunc(func(params todos.AddOneParams) middleware.Responder {
-			return middleware.NotImplemented("operation todos.AddOne has not yet been implemented")
-		})
-	}
+	api.TodosAddOneHandler = todos.AddOneHandlerFunc(func(params todos.AddOneParams) middleware.Responder {
+		if err := addItem(params.Body); err != nil {
+			return todos.NewAddOneDefault(500).WithPayload(&models.Error{Code: 500, Message: swag.String(err.Error())})
+		}
+		return todos.NewAddOneCreated().WithPayload(params.Body)
+	})
+
 	if api.TodosDestroyOneHandler == nil {
 		api.TodosDestroyOneHandler = todos.DestroyOneHandlerFunc(func(params todos.DestroyOneParams) middleware.Responder {
 			return middleware.NotImplemented("operation todos.DestroyOne has not yet been implemented")
