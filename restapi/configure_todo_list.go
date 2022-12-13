@@ -49,6 +49,19 @@ func addItem(item *models.Item) error {
 	return nil
 }
 
+func allItems(since int64, limit int32) (result []*models.Item) {
+	result = make([]*models.Item, 0)
+	for id, item := range items {
+		if len(result) >= int(limit) {
+			return
+		}
+		if since == 0 || id > since {
+			result = append(result, item)
+		}
+	}
+	return
+}
+
 func configureAPI(api *operations.TodoListAPI) http.Handler {
 	// configure the api here
 	api.ServeError = errors.ServeError
@@ -79,11 +92,18 @@ func configureAPI(api *operations.TodoListAPI) http.Handler {
 			return middleware.NotImplemented("operation todos.DestroyOne has not yet been implemented")
 		})
 	}
-	if api.TodosFindTodosHandler == nil {
-		api.TodosFindTodosHandler = todos.FindTodosHandlerFunc(func(params todos.FindTodosParams) middleware.Responder {
-			return middleware.NotImplemented("operation todos.FindTodos has not yet been implemented")
-		})
-	}
+
+	api.TodosFindTodosHandler = todos.FindTodosHandlerFunc(func(params todos.FindTodosParams) middleware.Responder {
+		mergedParams := todos.NewFindTodosParams()
+		mergedParams.Since = swag.Int64(0)
+		if params.Since != nil {
+			mergedParams.Since = params.Since
+		}
+		if params.Limit != nil {
+			mergedParams.Limit = params.Limit
+		}
+		return todos.NewFindTodosOK().WithPayload(allItems(*mergedParams.Since, *mergedParams.Limit))
+	})
 	if api.TodosUpdateOneHandler == nil {
 		api.TodosUpdateOneHandler = todos.UpdateOneHandlerFunc(func(params todos.UpdateOneParams) middleware.Responder {
 			return middleware.NotImplemented("operation todos.UpdateOne has not yet been implemented")
